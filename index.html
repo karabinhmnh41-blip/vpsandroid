@@ -75,6 +75,38 @@
         el.style.display = "block";
     }
 
+    // Hàm commit xóa sạch nội dung file android-link.txt tại root main
+    async function clearFileOnRoot(owner, repo, token) {
+        try {
+            // Lấy SHA của file android-link.txt hiện tại
+            const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/android-link.txt`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+
+            if (getRes.ok) {
+                const fileData = await getRes.json();
+                const sha = fileData.sha;
+
+                // Ghi đè chữ "CLEARING" lên file tại main root
+                await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/android-link.txt`, {
+                    method: "PUT",
+                    headers: {
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        message: "Auto reset android-link.txt on root",
+                        content: btoa("CLEARING"), // Mã hóa Base64
+                        sha: sha,
+                        branch: "main"
+                    })
+                });
+            }
+        } catch (e) {
+            console.log("Không thể xóa file trực tiếp, sẽ bỏ qua:", e);
+        }
+    }
+
     async function startWorkflow() {
         const token = document.getElementById("token").value.trim();
         const owner = document.getElementById("owner").value.trim();
@@ -87,15 +119,11 @@
             return;
         }
 
-        // Lưu thông tin vào bộ nhớ trình duyệt
         localStorage.setItem("gh_token", token);
         localStorage.setItem("gh_owner", owner);
         localStorage.setItem("gh_repo", repo);
         localStorage.setItem("gh_workflow", workflow);
 
-        // -------------------------------------------------------------
-        // XÓA LINK CŨ VÀ ẨN KHUNG HIỂN THỊ NGAY KHI BẤM NÚT
-        // -------------------------------------------------------------
         btn.disabled = true;
         const linkBox = document.getElementById("link-box");
         const vncUrl = document.getElementById("vnc-url");
@@ -103,13 +131,15 @@
         vncUrl.href = "#";
         vncUrl.innerText = "";
         
+        showStatus("🧹 Đang dọn dẹp file android-link.txt ở nhánh main root...", "info");
+
+        // 1. Thực hiện xóa nội dung file android-link.txt trực tiếp trên GitHub root
+        await clearFileOnRoot(owner, repo, token);
+
         showStatus("⏳ Đang gửi lệnh kích hoạt (dispatch) tới GitHub...", "info");
 
-        // Lấy thời điểm bấm nút để so sánh thời gian cập nhật của file link
-        const startTime = Date.now();
-
         try {
-            // 1. Gửi request Dispatch
+            // 2. Kích hoạt Workflow Run
             const dispatchRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`, {
                 method: "POST",
                 headers: {
@@ -123,47 +153,33 @@
                 throw new Error(`Lỗi kích hoạt (Mã ${dispatchRes.status}): Kiểm tra lại Token hoặc thông tin Repo.`);
             }
 
-            showStatus("✅ Đã kích hoạt Workflow! Đang chờ Android 9 khởi động...", "info");
+            showStatus("✅ Đã dọn link cũ & Kích hoạt Workflow! Đang chờ Android 9 boot...", "info");
 
-            // 2. Kiểm tra link mới mỗi 15 giây
+            // 3. Quét lấy link mới mỗi 15 giây
             let attempts = 0;
-            const maxAttempts = 35; // Chờ tối đa ~8 phút
+            const maxAttempts = 35;
 
             const checkInterval = setInterval(async () => {
                 attempts++;
-                showStatus(`⏳ Đang chờ máy ảo tạo link mới (Lần ${attempts}/${maxAttempts})... Vui lòng chờ 2-3 phút.`, "info");
+                showStatus(`⏳ Đang chờ máy ảo ghi link mới (Lần ${attempts}/${maxAttempts})... Khoảng 2-3 phút.`, "info");
 
                 try {
-                    // Kiểm tra thời gian chỉnh sửa của file android-link.txt qua GitHub API
-                    const fileCommitsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?path=android-link.txt&page=1&per_page=1`, {
-                        headers: { "Authorization": `Bearer ${token}` }
-                    });
-
-                    if (fileCommitsRes.ok) {
-                        const commits = await fileCommitsRes.json();
-                        if (commits.length > 0) {
-                            const lastCommitTime = new Date(commits[0].commit.committer.date).getTime();
-
-                            // CHỈ LẤY LINK NẾU FILE ĐƯỢC ĐẨY LÊN SAU KHI BẤM NÚT RUN (Tránh lấy link cũ)
-                            if (lastCommitTime > startTime) {
-                                const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/android-link.txt?t=${Date.now()}`);
-                                if (rawRes.ok) {
-                                    const link = (await rawRes.text()).trim();
-                                    if (link && link.startsWith("http") && !link.includes("CLEARING")) {
-                                        clearInterval(checkInterval);
-                                        showStatus("🎉 Android 9 đã sẵn sàng!", "success");
-                                        
-                                        vncUrl.href = link;
-                                        vncUrl.innerText = link;
-                                        linkBox.style.display = "block";
-                                        btn.disabled = false;
-                                    }
-                                }
-                            }
+                    const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/android-link.txt?t=${Date.now()}`);
+                    if (rawRes.ok) {
+                        const link = (await rawRes.text()).trim();
+                        // CHỈ HIỆN LINK KHI ĐÃ CÓ HTTP VÀ KHÔNG CHỨA CHỮ "CLEARING"
+                        if (link && link.startsWith("http") && !link.includes("CLEARING")) {
+                            clearInterval(checkInterval);
+                            showStatus("🎉 Android 9 đã sẵn sàng!", "success");
+                            
+                            vncUrl.href = link;
+                            vncUrl.innerText = link;
+                            linkBox.style.display = "block";
+                            btn.disabled = false;
                         }
                     }
                 } catch (e) {
-                    console.log("Đang chờ file link mới...");
+                    console.log("Đang chờ link mới...");
                 }
 
                 if (attempts >= maxAttempts) {
