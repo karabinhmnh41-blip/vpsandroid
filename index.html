@@ -13,9 +13,13 @@
         label { display: block; font-size: 0.85rem; margin-bottom: 6px; color: #94a3b8; font-weight: 500; }
         input { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s; }
         input:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
-        button { width: 100%; padding: 12px; border-radius: 6px; border: none; background: #0284c7; color: white; font-weight: bold; font-size: 1rem; cursor: pointer; transition: 0.2s; margin-top: 10px; }
-        button:hover { background: #0369a1; }
-        button:disabled { background: #475569; cursor: not-allowed; }
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        button { flex: 1; padding: 12px; border-radius: 6px; border: none; color: white; font-weight: bold; font-size: 0.95rem; cursor: pointer; transition: 0.2s; }
+        .btn-run { background: #0284c7; }
+        .btn-run:hover { background: #0369a1; }
+        .btn-clear { background: #e11d48; }
+        .btn-clear:hover { background: #be123c; }
+        button:disabled { background: #475569 !important; cursor: not-allowed; }
         #status { margin-top: 16px; padding: 12px; border-radius: 6px; font-size: 0.85rem; display: none; text-align: center; line-height: 1.4; }
         .info { background: #1e3a8a; color: #bfdbfe; border: 1px solid #1d4ed8; }
         .success { background: #065f46; color: #a7f3d0; border: 1px solid #047857; }
@@ -50,7 +54,10 @@
         <input type="text" id="workflow" value="main.yml" placeholder="main.yml">
     </div>
 
-    <button id="start-btn" onclick="startWorkflow()">Run Workflow & Lấy Link</button>
+    <div class="btn-group">
+        <button id="start-btn" class="btn-run" onclick="startWorkflow()">Run Workflow & Lấy Link</button>
+        <button id="clear-btn" class="btn-clear" onclick="manualClearFile()">🧹 Clear Link File</button>
+    </div>
 
     <div id="status"></div>
 
@@ -75,99 +82,133 @@
         el.style.display = "block";
     }
 
-    // Hàm commit xóa sạch nội dung file android-link.txt tại root main
-    async function clearFileOnRoot(owner, repo, token) {
-        try {
-            // Lấy SHA của file android-link.txt hiện tại
-            const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/android-link.txt`, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-
-            if (getRes.ok) {
-                const fileData = await getRes.json();
-                const sha = fileData.sha;
-
-                // Ghi đè chữ "CLEARING" lên file tại main root
-                await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/android-link.txt`, {
-                    method: "PUT",
-                    headers: {
-                        "Authorization": `Bearer ${token}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        message: "Auto reset android-link.txt on root",
-                        content: btoa("CLEARING"), // Mã hóa Base64
-                        sha: sha,
-                        branch: "main"
-                    })
-                });
-            }
-        } catch (e) {
-            console.log("Không thể xóa file trực tiếp, sẽ bỏ qua:", e);
-        }
-    }
-
-    async function startWorkflow() {
+    function getInputs() {
         const token = document.getElementById("token").value.trim();
         const owner = document.getElementById("owner").value.trim();
         const repo = document.getElementById("repo").value.trim();
         const workflow = document.getElementById("workflow").value.trim();
-        const btn = document.getElementById("start-btn");
-
         if(!token || !owner || !repo || !workflow) {
             alert("Vui lòng điền đầy đủ các thông tin!");
-            return;
+            return null;
         }
-
         localStorage.setItem("gh_token", token);
         localStorage.setItem("gh_owner", owner);
         localStorage.setItem("gh_repo", repo);
         localStorage.setItem("gh_workflow", workflow);
+        return { token, owner, repo, workflow };
+    }
 
-        btn.disabled = true;
+    // Hàm gọi API GitHub xóa file android-link.txt ở main root
+    async function clearFileOnRoot(owner, repo, token) {
+        let sha = "";
+        const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/android-link.txt`, {
+            headers: { "Authorization": `Bearer ${token}` }
+        });
+
+        if (getRes.ok) {
+            const fileData = await getRes.json();
+            sha = fileData.sha;
+        }
+
+        const bodyData = {
+            message: "Reset android-link.txt on main root",
+            content: "Q0xFQVJJTkc=", // Base64 của chữ "CLEARING"
+            branch: "main"
+        };
+        if (sha) bodyData.sha = sha;
+
+        const putRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/android-link.txt`, {
+            method: "PUT",
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(bodyData)
+        });
+
+        if (!putRes.ok) {
+            const errJson = await putRes.json();
+            throw new Error(`Lỗi Clear File: ${errJson.message || putRes.statusText}`);
+        }
+    }
+
+    // Nút Clear thủ công
+    async function manualClearFile() {
+        const data = getInputs();
+        if(!data) return;
+
+        const clearBtn = document.getElementById("clear-btn");
+        const startBtn = document.getElementById("start-btn");
+        clearBtn.disabled = true;
+        startBtn.disabled = true;
+        document.getElementById("link-box").style.display = "none";
+
+        showStatus("🧹 Đang gửi lệnh xóa nội dung android-link.txt trên GitHub...", "info");
+
+        try {
+            await clearFileOnRoot(data.owner, data.repo, data.token);
+            showStatus("✅ Đã xóa link cũ trên root main thành công! File hiện có nội dung: CLEARING", "success");
+        } catch (err) {
+            showStatus(`❌ Không thể xóa file: ${err.message}. Kiểm tra Token xem đã tích quyền 'repo' chưa!`, "error");
+        } finally {
+            clearBtn.disabled = false;
+            startBtn.disabled = false;
+        }
+    }
+
+    // Nút Run Workflow
+    async function startWorkflow() {
+        const data = getInputs();
+        if(!data) return;
+
+        const startBtn = document.getElementById("start-btn");
+        const clearBtn = document.getElementById("clear-btn");
+        startBtn.disabled = true;
+        clearBtn.disabled = true;
+
         const linkBox = document.getElementById("link-box");
         const vncUrl = document.getElementById("vnc-url");
         linkBox.style.display = "none";
         vncUrl.href = "#";
         vncUrl.innerText = "";
         
-        showStatus("🧹 Đang dọn dẹp file android-link.txt ở nhánh main root...", "info");
-
-        // 1. Thực hiện xóa nội dung file android-link.txt trực tiếp trên GitHub root
-        await clearFileOnRoot(owner, repo, token);
-
-        showStatus("⏳ Đang gửi lệnh kích hoạt (dispatch) tới GitHub...", "info");
+        showStatus("🧹 Đang dọn dẹp file android-link.txt trên root...", "info");
 
         try {
-            // 2. Kích hoạt Workflow Run
-            const dispatchRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`, {
+            await clearFileOnRoot(data.owner, data.repo, data.token);
+        } catch (e) {
+            console.warn("Bỏ qua lỗi clear file, tiếp tục trigger:", e);
+        }
+
+        showStatus("⏳ Đang kích hoạt Workflow trên GitHub...", "info");
+
+        try {
+            const dispatchRes = await fetch(`https://api.github.com/repos/${data.owner}/${data.repo}/actions/workflows/${data.workflow}/dispatches`, {
                 method: "POST",
                 headers: {
-                    "Authorization": `Bearer ${token}`,
+                    "Authorization": `Bearer ${data.token}`,
                     "Accept": "application/vnd.github+json"
                 },
                 body: JSON.stringify({ ref: "main" })
             });
 
             if (!dispatchRes.ok) {
-                throw new Error(`Lỗi kích hoạt (Mã ${dispatchRes.status}): Kiểm tra lại Token hoặc thông tin Repo.`);
+                throw new Error(`Lỗi kích hoạt (Mã ${dispatchRes.status}): Kiểm tra lại Token hoặc Tên Repo.`);
             }
 
-            showStatus("✅ Đã dọn link cũ & Kích hoạt Workflow! Đang chờ Android 9 boot...", "info");
+            showStatus("✅ Đã kích hoạt! Đang chờ Android 9 boot & cập nhật link mới...", "info");
 
-            // 3. Quét lấy link mới mỗi 15 giây
             let attempts = 0;
             const maxAttempts = 35;
 
             const checkInterval = setInterval(async () => {
                 attempts++;
-                showStatus(`⏳ Đang chờ máy ảo ghi link mới (Lần ${attempts}/${maxAttempts})... Khoảng 2-3 phút.`, "info");
+                showStatus(`⏳ Đang chờ link mới từ Android 9 (Lần ${attempts}/${maxAttempts})... Chờ khoảng 2-3 phút.`, "info");
 
                 try {
-                    const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/android-link.txt?t=${Date.now()}`);
+                    const rawRes = await fetch(`https://raw.githubusercontent.com/${data.owner}/${data.repo}/main/android-link.txt?t=${Date.now()}`);
                     if (rawRes.ok) {
                         const link = (await rawRes.text()).trim();
-                        // CHỈ HIỆN LINK KHI ĐÃ CÓ HTTP VÀ KHÔNG CHỨA CHỮ "CLEARING"
                         if (link && link.startsWith("http") && !link.includes("CLEARING")) {
                             clearInterval(checkInterval);
                             showStatus("🎉 Android 9 đã sẵn sàng!", "success");
@@ -175,23 +216,26 @@
                             vncUrl.href = link;
                             vncUrl.innerText = link;
                             linkBox.style.display = "block";
-                            btn.disabled = false;
+                            startBtn.disabled = false;
+                            clearBtn.disabled = false;
                         }
                     }
                 } catch (e) {
-                    console.log("Đang chờ link mới...");
+                    console.log("Đang chờ link...");
                 }
 
                 if (attempts >= maxAttempts) {
                     clearInterval(checkInterval);
                     showStatus("⚠️ Quá thời gian chờ. Hãy kiểm tra lại tab Actions trên GitHub.", "error");
-                    btn.disabled = false;
+                    startBtn.disabled = false;
+                    clearBtn.disabled = false;
                 }
             }, 15000);
 
         } catch (err) {
             showStatus(err.message, "error");
-            btn.disabled = false;
+            startBtn.disabled = false;
+            clearBtn.disabled = false;
         }
     }
 </script>
