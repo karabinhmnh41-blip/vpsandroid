@@ -22,8 +22,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create Swap Space (Chống tràn RAM)
+      - name: Setup 2GB Swap Space
         run: |
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
           sudo fallocate -l 2G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
@@ -57,11 +59,11 @@ jobs:
 
       - name: Wait for Web VNC Service (Port 6080)
         run: |
-          echo "Đang chờ Android 9 & Web VNC khởi động..."
+          echo "⏳ Đang chờ Android 9 & Web VNC khởi động..."
           for i in $(seq 1 40); do
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html || true)
             if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
-              echo "Web VNC Port 6080 đã sẵn sàng (HTTP $HTTP_STATUS)!"
+              echo "✅ Web VNC Port 6080 đã sẵn sàng (HTTP $HTTP_STATUS)!"
               break
             fi
             echo "Chờ noVNC Android 9 khởi động ($i/40)... status: $HTTP_STATUS"
@@ -80,7 +82,7 @@ jobs:
           URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
           FULL="$URL/vnc.html?autoconnect=true&resize=scale"
           
-          echo "### LINK MỞ ANDROID 9:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 LINK MỞ ANDROID 9:" >> $GITHUB_STEP_SUMMARY
           echo "[CLICK ĐỂ MỞ ANDROID EMULATOR]($FULL)" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
           echo "$FULL" >> $GITHUB_STEP_SUMMARY
