@@ -42,40 +42,36 @@ jobs:
           docker pull budtmo/docker-android:emulator_9.0
           mkdir -p "$GITHUB_WORKSPACE/android-data"
           docker run -d --name android \
-            --restart always \
-            --memory=4000m \
-            --device /dev/kvm \
             --privileged \
+            --device /dev/kvm \
             -p 6080:6080 \
+            -p 4723:4723 \
             -p 5554:5554 \
             -p 5555:5555 \
             -e EMULATOR_DEVICE="Nexus 5" \
             -e WEB_VNC=true \
             -e DEVICE_FRAME=false \
-            -e EMULATOR_NO_SKIN=true \
-            -e EMULATOR_HEADLESS=true \
-            -e EMULATOR_ARGS="-memory 1536 -cores 2 -gpu off -no-audio -no-snapshot-save -no-boot-anim" \
             -v "$GITHUB_WORKSPACE/android-data:/data" \
             budtmo/docker-android:emulator_9.0
 
-      - name: Wait for Boot Completion & Web VNC (Up to 7.5 mins)
+      - name: Wait for Web VNC Service (Port 6080)
         run: |
-          echo "⏳ Đang chờ Android 9 hoàn tất Boot Sequence và bật noVNC (Kiểm tra tối đa 90 lần)..."
+          echo "⏳ Đang chờ Android 9 & Web VNC khởi động dịch vụ..."
           READY=false
-          for i in $(seq 1 90); do
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html || true)
+          for i in $(seq 1 60); do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/ || true)
             if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
-              echo "✅ Android 9 và Web VNC đã sẵn sàng hoàn toàn! (Mã phản hồi: HTTP $HTTP_STATUS)"
+              echo "✅ Web VNC Port 6080 đã sẵn sàng! (Mã HTTP $HTTP_STATUS)"
               READY=true
               break
             fi
-            echo "Chờ Android 9 boot ($i/90)... HTTP Status: $HTTP_STATUS"
+            echo "Chờ noVNC khởi động ($i/60)... HTTP Status: $HTTP_STATUS"
             sleep 5
           done
 
           if [ "$READY" = "false" ]; then
-            echo "⚠️ Android 9 khởi động quá chậm hoặc gặp lỗi. Đang xuất log Docker..."
-            docker logs --tail 50 android
+            echo "❌ Quá thời gian chờ. Kiểm tra log Docker:"
+            docker logs --tail 40 android
             exit 1
           fi
 
@@ -89,15 +85,14 @@ jobs:
       - name: Export Link
         run: |
           URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
-          FULL="$URL/vnc.html?autoconnect=true&resize=scale"
           
           echo "### 🚀 LINK MỞ ANDROID 9:" >> $GITHUB_STEP_SUMMARY
-          echo "[CLICK ĐỂ MỞ ANDROID EMULATOR]($FULL)" >> $GITHUB_STEP_SUMMARY
+          echo "[CLICK ĐỂ MỞ ANDROID EMULATOR]($URL)" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
-          echo "$FULL" >> $GITHUB_STEP_SUMMARY
+          echo "$URL" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
 
-          echo "$FULL" > android-link.txt
+          echo "$URL" > android-link.txt
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
           git add android-link.txt
