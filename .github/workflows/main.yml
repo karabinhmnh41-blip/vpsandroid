@@ -37,12 +37,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Pull & Start Android 9 Image (RAM Restricted)
+      - name: Pull & Start Android 9 Image
         run: |
           docker pull budtmo/docker-android:emulator_9.0
           mkdir -p "$GITHUB_WORKSPACE/android-data"
           docker run -d --name android \
-            --memory=3500m \
+            --restart always \
+            --memory=4000m \
             --device /dev/kvm \
             --privileged \
             -p 6080:6080 \
@@ -53,22 +54,30 @@ jobs:
             -e DEVICE_FRAME=false \
             -e EMULATOR_NO_SKIN=true \
             -e EMULATOR_HEADLESS=true \
-            -e EMULATOR_ARGS="-memory 1024 -cores 2 -gpu off -no-audio -no-snapshot-save -no-boot-anim" \
+            -e EMULATOR_ARGS="-memory 1536 -cores 2 -gpu off -no-audio -no-snapshot-save -no-boot-anim" \
             -v "$GITHUB_WORKSPACE/android-data:/data" \
             budtmo/docker-android:emulator_9.0
 
-      - name: Wait for Web VNC Service (Port 6080)
+      - name: Wait for Boot Completion & Web VNC (Up to 7.5 mins)
         run: |
-          echo "⏳ Đang chờ Android 9 & Web VNC khởi động..."
-          for i in $(seq 1 40); do
+          echo "⏳ Đang chờ Android 9 hoàn tất Boot Sequence và bật noVNC (Kiểm tra tối đa 90 lần)..."
+          READY=false
+          for i in $(seq 1 90); do
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html || true)
             if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
-              echo "✅ Web VNC Port 6080 đã sẵn sàng (HTTP $HTTP_STATUS)!"
+              echo "✅ Android 9 và Web VNC đã sẵn sàng hoàn toàn! (Mã phản hồi: HTTP $HTTP_STATUS)"
+              READY=true
               break
             fi
-            echo "Chờ noVNC Android 9 khởi động ($i/40)... status: $HTTP_STATUS"
-            sleep 4
+            echo "Chờ Android 9 boot ($i/90)... HTTP Status: $HTTP_STATUS"
+            sleep 5
           done
+
+          if [ "$READY" = "false" ]; then
+            echo "⚠️ Android 9 khởi động quá chậm hoặc gặp lỗi. Đang xuất log Docker..."
+            docker logs --tail 50 android
+            exit 1
+          fi
 
       - name: Install Cloudflared & Tunnel
         run: |
