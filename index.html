@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Android Cloud Runner Controller</title>
+    <title>Android 9 Cloud Controller</title>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
@@ -37,17 +37,17 @@
 
     <div class="form-group">
         <label for="owner">👤 GitHub Username:</label>
-        <input type="text" id="owner" placeholder="Tên tài khoản GitHub">
+        <input type="text" id="owner" placeholder="Ví dụ: karabinhmnh41-blip">
     </div>
 
     <div class="form-group">
         <label for="repo">📁 Repository Name:</label>
-        <input type="text" id="repo" placeholder="Tên repo chứa workflow">
+        <input type="text" id="repo" placeholder="Ví dụ: vpsandroid">
     </div>
 
     <div class="form-group">
         <label for="workflow">📄 Workflow File Name:</label>
-        <input type="text" id="workflow" value="android.yml" placeholder="android.yml">
+        <input type="text" id="workflow" value="main.yml" placeholder="main.yml">
     </div>
 
     <button id="start-btn" onclick="startWorkflow()">Run Workflow & Lấy Link</button>
@@ -55,13 +55,12 @@
     <div id="status"></div>
 
     <div id="link-box">
-        <div style="font-size: 0.8rem; color: #94a3b8;">LINK MỞ WEB VNC ANDROID 9:</div>
+        <div style="font-size: 0.8rem; color: #94a3b8;">LINK MỞ WEB VNC ANDROID 9 MỚI:</div>
         <a id="vnc-url" href="#" target="_blank">Đang cập nhật...</a>
     </div>
 </div>
 
 <script>
-    // Tự động load dữ liệu đã lưu từ trước
     document.addEventListener("DOMContentLoaded", () => {
         if(localStorage.getItem("gh_token")) document.getElementById("token").value = localStorage.getItem("gh_token");
         if(localStorage.getItem("gh_owner")) document.getElementById("owner").value = localStorage.getItem("gh_owner");
@@ -88,18 +87,29 @@
             return;
         }
 
-        // Lưu thông tin vào trình duyệt
+        // Lưu thông tin vào bộ nhớ trình duyệt
         localStorage.setItem("gh_token", token);
         localStorage.setItem("gh_owner", owner);
         localStorage.setItem("gh_repo", repo);
         localStorage.setItem("gh_workflow", workflow);
 
+        // -------------------------------------------------------------
+        // XÓA LINK CŨ VÀ ẨN KHUNG HIỂN THỊ NGAY KHI BẤM NÚT
+        // -------------------------------------------------------------
         btn.disabled = true;
-        document.getElementById("link-box").style.display = "none";
+        const linkBox = document.getElementById("link-box");
+        const vncUrl = document.getElementById("vnc-url");
+        linkBox.style.display = "none";
+        vncUrl.href = "#";
+        vncUrl.innerText = "";
+        
         showStatus("⏳ Đang gửi lệnh kích hoạt (dispatch) tới GitHub...", "info");
 
+        // Lấy thời điểm bấm nút để so sánh thời gian cập nhật của file link
+        const startTime = Date.now();
+
         try {
-            // 1. Kích hoạt Workflow qua GitHub API
+            // 1. Gửi request Dispatch
             const dispatchRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`, {
                 method: "POST",
                 headers: {
@@ -113,40 +123,52 @@
                 throw new Error(`Lỗi kích hoạt (Mã ${dispatchRes.status}): Kiểm tra lại Token hoặc thông tin Repo.`);
             }
 
-            showStatus("✅ Đã kích hoạt Workflow! Đang chờ Android 9 boot & cập nhật link...", "info");
+            showStatus("✅ Đã kích hoạt Workflow! Đang chờ Android 9 khởi động...", "info");
 
-            // 2. Kiểm tra lấy file android-link.txt tự động (quét mỗi 15 giây)
+            // 2. Kiểm tra link mới mỗi 15 giây
             let attempts = 0;
-            const maxAttempts = 35; // Quét trong tầm 8 phút
+            const maxAttempts = 35; // Chờ tối đa ~8 phút
 
             const checkInterval = setInterval(async () => {
                 attempts++;
-                showStatus(`⏳ Đang chờ máy ảo tạo link (Lần ${attempts}/${maxAttempts})... Khoảng 2-4 phút.`, "info");
+                showStatus(`⏳ Đang chờ máy ảo tạo link mới (Lần ${attempts}/${maxAttempts})... Vui lòng chờ 2-3 phút.`, "info");
 
                 try {
-                    const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/android-link.txt?t=${Date.now()}`);
-                    
-                    if (rawRes.ok) {
-                        const link = (await rawRes.text()).trim();
-                        if (link && link.startsWith("http")) {
-                            clearInterval(checkInterval);
-                            showStatus("🎉 Android 9 đã sẵn sàng!", "success");
-                            
-                            const linkBox = document.getElementById("link-box");
-                            const vncUrl = document.getElementById("vnc-url");
-                            vncUrl.href = link;
-                            vncUrl.innerText = link;
-                            linkBox.style.display = "block";
-                            btn.disabled = false;
+                    // Kiểm tra thời gian chỉnh sửa của file android-link.txt qua GitHub API
+                    const fileCommitsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?path=android-link.txt&page=1&per_page=1`, {
+                        headers: { "Authorization": `Bearer ${token}` }
+                    });
+
+                    if (fileCommitsRes.ok) {
+                        const commits = await fileCommitsRes.json();
+                        if (commits.length > 0) {
+                            const lastCommitTime = new Date(commits[0].commit.committer.date).getTime();
+
+                            // CHỈ LẤY LINK NẾU FILE ĐƯỢC ĐẨY LÊN SAU KHI BẤM NÚT RUN (Tránh lấy link cũ)
+                            if (lastCommitTime > startTime) {
+                                const rawRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/android-link.txt?t=${Date.now()}`);
+                                if (rawRes.ok) {
+                                    const link = (await rawRes.text()).trim();
+                                    if (link && link.startsWith("http") && !link.includes("CLEARING")) {
+                                        clearInterval(checkInterval);
+                                        showStatus("🎉 Android 9 đã sẵn sàng!", "success");
+                                        
+                                        vncUrl.href = link;
+                                        vncUrl.innerText = link;
+                                        linkBox.style.display = "block";
+                                        btn.disabled = false;
+                                    }
+                                }
+                            }
                         }
                     }
                 } catch (e) {
-                    console.log("Đang chờ link...");
+                    console.log("Đang chờ file link mới...");
                 }
 
                 if (attempts >= maxAttempts) {
                     clearInterval(checkInterval);
-                    showStatus("⚠️ Quá thời gian chờ. Bạn hãy kiểm tra lại tab Actions trên GitHub.", "error");
+                    showStatus("⚠️ Quá thời gian chờ. Hãy kiểm tra lại tab Actions trên GitHub.", "error");
                     btn.disabled = false;
                 }
             }, 15000);
