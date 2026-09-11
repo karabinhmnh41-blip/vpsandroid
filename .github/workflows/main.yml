@@ -1,4 +1,4 @@
-name: Cloud Android 9 Auto Run
+name: Cloud Android 9 Auto Run (Max RAM)
 
 on:
   workflow_dispatch:
@@ -22,11 +22,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup 2GB Swap Space
+      - name: Free Up Disk & RAM Space
+        run: |
+          echo "🧹 Đang dọn dẹp tài nguyên thừa trên Runner..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo docker image prune -a -f || true
+
+      - name: Setup 4GB Swap Space (Mở rộng RAM ảo)
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo fallocate -l 2G /swapfile
+          sudo fallocate -l 4G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
@@ -37,13 +46,14 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Pull & Start Android 9 Image
+      - name: Pull & Start Android 9 Image (MAX RAM 4GB)
         run: |
           docker pull budtmo/docker-android:emulator_9.0
           mkdir -p "$GITHUB_WORKSPACE/android-data"
           docker run -d --name android \
             --privileged \
             --device /dev/kvm \
+            --memory=5500m \
             -p 6080:6080 \
             -p 4723:4723 \
             -p 5554:5554 \
@@ -51,46 +61,41 @@ jobs:
             -e EMULATOR_DEVICE="Nexus 5" \
             -e WEB_VNC=true \
             -e DEVICE_FRAME=false \
+            -e SCREEN_WIDTH=540 \
+            -e SCREEN_HEIGHT=960 \
+            -e SCREEN_DEPTH=16 \
+            -e EMULATOR_ARGS="-memory 4096 -cores 2 -gpu off -no-audio -no-snapshot-save -no-boot-anim -lcd-density 160" \
             -v "$GITHUB_WORKSPACE/android-data:/data" \
             budtmo/docker-android:emulator_9.0
 
-      - name: Wait for Web VNC Service (Port 6080)
+      - name: Wait for Web VNC Service
         run: |
-          echo "⏳ Đang chờ Android 9 & Web VNC khởi động dịch vụ..."
+          echo "⏳ Đang chờ Android 9 & Web VNC khởi động..."
           READY=false
           for i in $(seq 1 60); do
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/ || true)
             if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
-              echo "✅ Web VNC Port 6080 đã sẵn sàng! (Mã HTTP $HTTP_STATUS)"
+              echo "✅ Web VNC Port 6080 đã sẵn sàng!"
               READY=true
               break
             fi
-            echo "Chờ noVNC khởi động ($i/60)... HTTP Status: $HTTP_STATUS"
+            echo "Chờ noVNC ($i/60)... HTTP Status: $HTTP_STATUS"
             sleep 5
           done
-
-          if [ "$READY" = "false" ]; then
-            echo "❌ Quá thời gian chờ. Kiểm tra log Docker:"
-            docker logs --tail 40 android
-            exit 1
-          fi
 
       - name: Install Cloudflared & Tunnel
         run: |
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
           nohup cloudflared tunnel --url http://localhost:6080 --no-autoupdate --protocol http2 --logfile cloudflared.log &
-          sleep 12
+          sleep 10
 
       - name: Export Link
         run: |
           URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
           
-          echo "### 🚀 LINK MỞ ANDROID 9:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 LINK MỞ ANDROID 9 (MAX RAM):" >> $GITHUB_STEP_SUMMARY
           echo "[CLICK ĐỂ MỞ ANDROID EMULATOR]($URL)" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
-          echo "$URL" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
 
           echo "$URL" > android-link.txt
           git config user.email "actions@github.com"
