@@ -31,13 +31,15 @@ jobs:
       - name: Pull Android 10 Image
         run: docker pull budtmo/docker-android:emulator_10.0
 
-      - name: Start Android 10 (Pixel 3, 2GB RAM)
+      - name: Start Android 10
         run: |
           mkdir -p "$GITHUB_WORKSPACE/android-data"
           docker run -d --name android \
             --device /dev/kvm \
             --privileged \
-            -p 6080:6080 -p 5554:5554 -p 5555:5555 \
+            -p 6080:6080 \
+            -p 5554:5554 \
+            -p 5555:5555 \
             -e EMULATOR_DEVICE="Pixel 3" \
             -e WEB_VNC=true \
             -e DEVICE_FRAME=false \
@@ -47,15 +49,17 @@ jobs:
             -v "$GITHUB_WORKSPACE/android-data:/data" \
             budtmo/docker-android:emulator_10.0
 
-      - name: Wait for Web VNC Port 6080
+      - name: Wait for Web VNC Service (HTTP 200/302)
         run: |
-          echo "⏳ Đang chờ Web VNC (Port 6080) sẵn sàng..."
-          for i in $(seq 1 30); do
-            if nc -z localhost 6080; then
-              echo "✅ Port 6080 đã mở!"
+          echo "⏳ Đang chờ Web VNC Android phản hồi..."
+          for i in $(seq 1 40); do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html || true)
+            if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
+              echo "✅ Web VNC Port 6080 đã sẵn sàng (HTTP $HTTP_STATUS)!"
               break
             fi
-            sleep 3
+            echo "Chờ noVNC Android khởi động ($i/40)... status: $HTTP_STATUS"
+            sleep 5
           done
 
       - name: Install Cloudflared & Tunnel
@@ -63,7 +67,7 @@ jobs:
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
           nohup cloudflared tunnel --url http://localhost:6080 --no-autoupdate --protocol http2 --logfile cloudflared.log &
-          sleep 12
+          sleep 15
 
       - name: Export Link
         run: |
