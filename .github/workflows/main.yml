@@ -1,0 +1,89 @@
+name: Cloud Android 10 - Super Light Edition
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */5 * * *"
+
+concurrency:
+  group: vps-android-runner
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 320
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Pull Android 10 Image (Siêu nhẹ)
+        run: docker pull budtmo/docker-android:emulator_10.0
+
+      - name: Start Android 10 (Pixel 3, 2GB RAM)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/android-data"
+          docker run -d --name android \
+            --device /dev/kvm \
+            --privileged \
+            -p 6080:6080 -p 5554:5554 -p 5555:5555 \
+            -e EMULATOR_DEVICE="Pixel 3" \
+            -e WEB_VNC=true \
+            -e DEVICE_FRAME=false \
+            -e EMULATOR_NO_SKIN=true \
+            -e EMULATOR_HEADLESS=true \
+            -e EMULATOR_ARGS="-memory 2048 -cores 2 -gpu off -no-audio -no-snapshot-save -no-boot-anim" \
+            -v "$GITHUB_WORKSPACE/android-data:/data" \
+            budtmo/docker-android:emulator_10.0
+
+      - name: Wait for Android boot
+        run: |
+          echo "⏳ Đang boot Android 10..."
+          for i in $(seq 1 30); do
+            STATUS=$(docker exec android adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$STATUS" = "1" ]; then
+              echo "✅ Android 10 đã boot thành công sau ~$((i*5))s!"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Install Cloudflared & Tunnel
+        run: |
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          nohup cloudflared tunnel --url http://localhost:6080 --no-autoupdate --protocol http2 --logfile cloudflared.log &
+          sleep 10
+
+      - name: Export Link
+        run: |
+          URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
+          FULL="$URL/vnc.html?autoconnect=true&resize=scale"
+          
+          {
+            echo '======================================================='
+            echo 'CLOUD ANDROID 10 - Super Light Edition'
+            echo '======================================================='
+            echo "URL       : $FULL"
+            echo '======================================================='
+          } > android-link.txt
+          
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add android-link.txt
+          git commit -m "Update Cloud Android 10 link" || true
+          git push origin main --force
+
+      - name: Keep Alive
+        run: sleep 16200
