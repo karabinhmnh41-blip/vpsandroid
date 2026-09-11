@@ -1,4 +1,4 @@
-name: Cloud Android 10 - Super Light Edition
+name: Cloud Android 10 Auto Run
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Pull Android 10 Image (Siêu nhẹ)
+      - name: Pull Android 10 Image
         run: docker pull budtmo/docker-android:emulator_10.0
 
       - name: Start Android 10 (Pixel 3, 2GB RAM)
@@ -47,16 +47,15 @@ jobs:
             -v "$GITHUB_WORKSPACE/android-data:/data" \
             budtmo/docker-android:emulator_10.0
 
-      - name: Wait for Android boot
+      - name: Wait for Web VNC Port 6080
         run: |
-          echo "⏳ Đang boot Android 10..."
+          echo "⏳ Đang chờ Web VNC (Port 6080) sẵn sàng..."
           for i in $(seq 1 30); do
-            STATUS=$(docker exec android adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            if [ "$STATUS" = "1" ]; then
-              echo "✅ Android 10 đã boot thành công sau ~$((i*5))s!"
+            if nc -z localhost 6080; then
+              echo "✅ Port 6080 đã mở!"
               break
             fi
-            sleep 5
+            sleep 3
           done
 
       - name: Install Cloudflared & Tunnel
@@ -64,26 +63,25 @@ jobs:
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
           nohup cloudflared tunnel --url http://localhost:6080 --no-autoupdate --protocol http2 --logfile cloudflared.log &
-          sleep 10
+          sleep 12
 
       - name: Export Link
         run: |
           URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
           FULL="$URL/vnc.html?autoconnect=true&resize=scale"
           
-          {
-            echo '======================================================='
-            echo 'CLOUD ANDROID 10 - Super Light Edition'
-            echo '======================================================='
-            echo "URL       : $FULL"
-            echo '======================================================='
-          } > android-link.txt
-          
+          echo "### 🚀 LINK MỞ ANDROID 10:" >> $GITHUB_STEP_SUMMARY
+          echo "[CLICK ĐỂ MỞ ANDROID EMULATOR]($FULL)" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          echo "$FULL" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+
+          echo "$FULL" > android-link.txt
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
           git add android-link.txt
           git commit -m "Update Cloud Android 10 link" || true
           git push origin main --force
 
-      - name: Keep Alive
-        run: sleep 16200
+      - name: Keep Alive (5h)
+        run: sleep 18000
