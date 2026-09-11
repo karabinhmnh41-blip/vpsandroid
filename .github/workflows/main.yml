@@ -1,4 +1,4 @@
-name: Cloud Android Auto Run
+name: Cloud Android 9 Auto Run
 
 on:
   workflow_dispatch:
@@ -28,31 +28,35 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Pull & Start Light Android Container
+      - name: Pull & Start Android 9 Image
         run: |
           docker pull budtmo/docker-android:emulator_9.0
+          mkdir -p "$GITHUB_WORKSPACE/android-data"
           docker run -d --name android \
             --device /dev/kvm \
             --privileged \
             -p 6080:6080 \
+            -p 5554:5554 \
+            -p 5555:5555 \
             -e EMULATOR_DEVICE="Nexus 5" \
             -e WEB_VNC=true \
             -e DEVICE_FRAME=false \
             -e EMULATOR_NO_SKIN=true \
             -e EMULATOR_HEADLESS=true \
             -e EMULATOR_ARGS="-memory 1536 -cores 2 -gpu off -no-audio -no-snapshot-save -no-boot-anim" \
+            -v "$GITHUB_WORKSPACE/android-data:/data" \
             budtmo/docker-android:emulator_9.0
 
       - name: Wait for Web VNC Service (Port 6080)
         run: |
-          echo "⏳ Đang chờ Web VNC Android phản hồi..."
+          echo "⏳ Đang chờ Android 9 & Web VNC khởi động..."
           for i in $(seq 1 40); do
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:6080/vnc.html || true)
             if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
               echo "✅ Web VNC Port 6080 đã sẵn sàng (HTTP $HTTP_STATUS)!"
               break
             fi
-            echo "Chờ noVNC Android khởi động ($i/40)... status: $HTTP_STATUS"
+            echo "Chờ noVNC Android 9 khởi động ($i/40)... status: $HTTP_STATUS"
             sleep 4
           done
 
@@ -68,7 +72,7 @@ jobs:
           URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
           FULL="$URL/vnc.html?autoconnect=true&resize=scale"
           
-          echo "### 🚀 LINK MỞ ANDROID EMULATOR:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 LINK MỞ ANDROID 9:" >> $GITHUB_STEP_SUMMARY
           echo "[CLICK ĐỂ MỞ ANDROID EMULATOR]($FULL)" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
           echo "$FULL" >> $GITHUB_STEP_SUMMARY
@@ -78,7 +82,7 @@ jobs:
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
           git add android-link.txt
-          git commit -m "Update Cloud Android link" || true
+          git commit -m "Update Cloud Android 9 link" || true
           git push origin main --force
 
       - name: Keep Alive (5h)
