@@ -1,4 +1,4 @@
-name: Cloud Android 9 Auto Run (Max RAM)
+name: Cloud Android 9 Auto Run (Max Performance)
 
 on:
   workflow_dispatch:
@@ -22,38 +22,54 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Free Up Disk & RAM Space
+      - name: Free Up Maximum Disk & RAM Space
         run: |
-          echo "🧹 Đang dọn dẹp tài nguyên thừa trên Runner..."
+          echo "🧹 Đang giải phóng tối đa tài nguyên hệ thống..."
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/lib/node_modules
           sudo docker image prune -a -f || true
 
-      - name: Setup 4GB Swap Space (Mở rộng RAM ảo)
+      - name: Setup 8GB Swap Space & Performance Tuning
         run: |
+          echo "🚀 Tối ưu hóa Bộ nhớ RAM & Swap 8GB..."
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo fallocate -l 4G /swapfile
+          sudo fallocate -l 8G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          # Tinh chỉnh Swappiness để hệ thống ưu tiên giữ bộ nhớ mượt hơn
+          sudo sysctl vm.swappiness=10
+          sudo sysctl vm.vfs_cache_pressure=50
 
-      - name: Enable KVM
+      - name: Enable KVM Hardware Virtualization
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -y && sudo apt-get install -y mesa-utils libgl1-mesa-dri
 
-      - name: Pull & Start Android 9 Image (MAX RAM 4GB)
+      - name: Pull & Start Android 9 Image (MAX SETTINGS & GPU ENABLED)
         run: |
           docker pull budtmo/docker-android:emulator_9.0
           mkdir -p "$GITHUB_WORKSPACE/android-data"
+
+          # Tự động phát hiện GPU/OpenGL Render
+          GPU_MODE="swiftshader_indirect"
+          if command -v nvidia-smi &> /dev/null; then
+            GPU_MODE="host"
+          fi
+
+          echo "🎮 Đang khởi chạy Android với GPU mode: $GPU_MODE..."
+
           docker run -d --name android \
             --privileged \
             --device /dev/kvm \
-            --memory=5500m \
+            --memory=6144m \
             -p 6080:6080 \
             -p 4723:4723 \
             -p 5554:5554 \
@@ -64,7 +80,7 @@ jobs:
             -e SCREEN_WIDTH=540 \
             -e SCREEN_HEIGHT=960 \
             -e SCREEN_DEPTH=16 \
-            -e EMULATOR_ARGS="-memory 4096 -cores 2 -gpu off -no-audio -no-snapshot-save -no-boot-anim -lcd-density 160" \
+            -e EMULATOR_ARGS="-memory 4096 -cores 4 -gpu $GPU_MODE -no-audio -no-snapshot-save -no-boot-anim -lcd-density 160 -qemu -m 4096" \
             -v "$GITHUB_WORKSPACE/android-data:/data" \
             budtmo/docker-android:emulator_9.0
 
@@ -83,7 +99,7 @@ jobs:
             sleep 5
           done
 
-      - name: Install Cloudflared & Tunnel
+      - name: Install Cloudflared & Tunnel (HTTP2 Accelerated)
         run: |
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
@@ -94,14 +110,14 @@ jobs:
         run: |
           URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
           
-          echo "### 🚀 LINK MỞ ANDROID 9 (MAX RAM):" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 LINK MỞ ANDROID 9 (MAX PERFORMANCE & GPU):" >> $GITHUB_STEP_SUMMARY
           echo "[CLICK ĐỂ MỞ ANDROID EMULATOR]($URL)" >> $GITHUB_STEP_SUMMARY
 
           echo "$URL" > android-link.txt
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
           git add android-link.txt
-          git commit -m "Update Cloud Android 9 link" || true
+          git commit -m "Update Cloud Android 9 link [Max Settings]" || true
           git push origin main --force
 
       - name: Keep Alive (5h)
